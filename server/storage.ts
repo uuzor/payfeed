@@ -1,4 +1,6 @@
-import { type User, type InsertUser, type Stream, type InsertStream, type Message, type InsertMessage, type CommunityStats } from "@shared/schema";
+import { users, streams, messages, communityStats, type User, type InsertUser, type Stream, type InsertStream, type Message, type InsertMessage, type CommunityStats } from "@shared/schema";
+import { db } from "./db";
+import { eq, desc } from "drizzle-orm";
 import { randomUUID } from "crypto";
 
 export interface IStorage {
@@ -24,142 +26,160 @@ export interface IStorage {
   updateCommunityStats(updates: Partial<CommunityStats>): Promise<CommunityStats>;
 }
 
-export class MemStorage implements IStorage {
-  private users: Map<string, User> = new Map();
-  private streams: Map<string, Stream> = new Map();
-  private messages: Map<string, Message> = new Map();
-  private communityStats: CommunityStats;
-
-  constructor() {
-    // Initialize community stats
-    this.communityStats = {
-      id: randomUUID(),
-      totalMembers: 0,
-      activeStreamers: 0,
-      totalStreamed: "0",
-      monthlyVolume: "0",
-      updatedAt: new Date(),
-    };
-  }
-
+export class DatabaseStorage implements IStorage {
   async getUser(id: string): Promise<User | undefined> {
-    return this.users.get(id);
+    const [user] = await db.select().from(users).where(eq(users.id, id));
+    return user || undefined;
   }
 
   async getUserByAddress(address: string): Promise<User | undefined> {
-    return Array.from(this.users.values()).find(user => user.address.toLowerCase() === address.toLowerCase());
+    const [user] = await db.select().from(users).where(eq(users.address, address.toLowerCase()));
+    return user || undefined;
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
-    const id = randomUUID();
-    const user: User = {
-      ...insertUser,
-      id,
-      username: insertUser.username || null,
-      isVerified: insertUser.isVerified || false,
-      createdAt: new Date(),
-    };
-    this.users.set(id, user);
+    const [user] = await db
+      .insert(users)
+      .values({
+        ...insertUser,
+        address: insertUser.address.toLowerCase(),
+      })
+      .returning();
     
     // Update community stats
-    this.communityStats.totalMembers = this.users.size;
-    this.communityStats.updatedAt = new Date();
+    await this.updateCommunityStatsTotalMembers();
     
     return user;
   }
 
   async updateUser(id: string, updates: Partial<User>): Promise<User | undefined> {
-    const user = this.users.get(id);
-    if (!user) return undefined;
-
-    const updatedUser = { ...user, ...updates };
-    this.users.set(id, updatedUser);
-    return updatedUser;
+    const [user] = await db
+      .update(users)
+      .set(updates)
+      .where(eq(users.id, id))
+      .returning();
+    return user || undefined;
   }
 
   async getStream(id: string): Promise<Stream | undefined> {
-    return this.streams.get(id);
+    const [stream] = await db.select().from(streams).where(eq(streams.id, id));
+    return stream || undefined;
   }
 
   async getStreamsByUser(userId: string): Promise<Stream[]> {
-    return Array.from(this.streams.values()).filter(stream => stream.userId === userId);
+    return await db.select().from(streams).where(eq(streams.userId, userId));
   }
 
   async getActiveStreams(): Promise<Stream[]> {
-    return Array.from(this.streams.values()).filter(stream => stream.isActive && !stream.isPaused);
+    return await db.select().from(streams).where(eq(streams.isActive, true));
   }
 
   async createStream(insertStream: InsertStream): Promise<Stream> {
-    const id = randomUUID();
-    const stream: Stream = {
-      ...insertStream,
-      id,
-      streamedAmount: "0",
-      startTime: new Date(),
-      endTime: insertStream.endTime || null,
-      isActive: true,
-      isPaused: false,
-      transactionHash: insertStream.transactionHash || null,
-      paymentId: insertStream.paymentId || null,
-    };
-    this.streams.set(id, stream);
+    const [stream] = await db
+      .insert(streams)
+      .values(insertStream)
+      .returning();
 
     // Update community stats
-    const activeStreams = await this.getActiveStreams();
-    this.communityStats.activeStreamers = activeStreams.length;
-    this.communityStats.updatedAt = new Date();
-
+    await this.updateCommunityStatsActiveStreamers();
+    
     return stream;
   }
 
   async updateStream(id: string, updates: Partial<Stream>): Promise<Stream | undefined> {
-    const stream = this.streams.get(id);
-    if (!stream) return undefined;
-
-    const updatedStream = { ...stream, ...updates };
-    this.streams.set(id, updatedStream);
+    const [stream] = await db
+      .update(streams)
+      .set(updates)
+      .where(eq(streams.id, id))
+      .returning();
 
     // Update community stats if needed
-    if (updates.streamedAmount) {
-      const totalStreamed = Array.from(this.streams.values())
-        .reduce((sum, s) => sum + parseFloat(s.streamedAmount || "0"), 0);
-      this.communityStats.totalStreamed = totalStreamed.toString();
+    if (updates.streamedAmount || updates.isActive !== undefined || updates.isPaused !== undefined) {
+      await this.updateCommunityStatsActiveStreamers();
+      await this.updateCommunityStatsTotalStreamed();
     }
 
-    const activeStreams = await this.getActiveStreams();
-    this.communityStats.activeStreamers = activeStreams.length;
-    this.communityStats.updatedAt = new Date();
-
-    return updatedStream;
+    return stream || undefined;
   }
 
   async getMessages(limit: number = 50): Promise<Message[]> {
-    return Array.from(this.messages.values())
-      .sort((a, b) => (b.createdAt?.getTime() || 0) - (a.createdAt?.getTime() || 0))
-      .slice(0, limit);
+    return await db
+      .select()
+      .from(messages)
+      .orderBy(desc(messages.createdAt))
+      .limit(limit);
   }
 
   async createMessage(insertMessage: InsertMessage): Promise<Message> {
-    const id = randomUUID();
-    const message: Message = {
-      ...insertMessage,
-      id,
-      messageType: insertMessage.messageType || "user",
-      metadata: insertMessage.metadata || null,
-      createdAt: new Date(),
-    };
-    this.messages.set(id, message);
+    const [message] = await db
+      .insert(messages)
+      .values(insertMessage)
+      .returning();
     return message;
   }
 
   async getCommunityStats(): Promise<CommunityStats> {
-    return this.communityStats;
+    let [stats] = await db.select().from(communityStats).limit(1);
+    
+    if (!stats) {
+      // Create initial stats if none exist
+      [stats] = await db
+        .insert(communityStats)
+        .values({
+          totalMembers: 0,
+          activeStreamers: 0,
+          totalStreamed: "0",
+          monthlyVolume: "0",
+        })
+        .returning();
+    }
+    
+    return stats;
   }
 
   async updateCommunityStats(updates: Partial<CommunityStats>): Promise<CommunityStats> {
-    this.communityStats = { ...this.communityStats, ...updates, updatedAt: new Date() };
-    return this.communityStats;
+    let [stats] = await db.select().from(communityStats).limit(1);
+    
+    if (!stats) {
+      // Create if doesn't exist
+      [stats] = await db
+        .insert(communityStats)
+        .values({
+          totalMembers: 0,
+          activeStreamers: 0,
+          totalStreamed: "0",
+          monthlyVolume: "0",
+          ...updates,
+        })
+        .returning();
+    } else {
+      [stats] = await db
+        .update(communityStats)
+        .set({ ...updates, updatedAt: new Date() })
+        .where(eq(communityStats.id, stats.id))
+        .returning();
+    }
+    
+    return stats;
+  }
+
+  private async updateCommunityStatsTotalMembers(): Promise<void> {
+    const totalUsers = await db.select().from(users);
+    await this.updateCommunityStats({ totalMembers: totalUsers.length });
+  }
+
+  private async updateCommunityStatsActiveStreamers(): Promise<void> {
+    const activeStreams = await this.getActiveStreams();
+    const uniqueUsers = new Set(activeStreams.filter(s => !s.isPaused).map(s => s.userId));
+    await this.updateCommunityStats({ activeStreamers: uniqueUsers.size });
+  }
+
+  private async updateCommunityStatsTotalStreamed(): Promise<void> {
+    const allStreams = await db.select().from(streams);
+    const totalStreamed = allStreams
+      .reduce((sum, s) => sum + parseFloat(s.streamedAmount || "0"), 0);
+    await this.updateCommunityStats({ totalStreamed: totalStreamed.toString() });
   }
 }
 
-export const storage = new MemStorage();
+export const storage = new DatabaseStorage();

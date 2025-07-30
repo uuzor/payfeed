@@ -1,7 +1,9 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { storage } from '../server/storage';
+import { DatabaseStorage } from '../server/storage';
 import { insertMessageSchema } from '../shared/schema';
 import { z } from 'zod';
+
+const storage = new DatabaseStorage();
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === 'GET') {
