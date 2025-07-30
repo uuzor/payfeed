@@ -1,0 +1,1953 @@
+Guides
+Accept Payments
+
+Copy page
+
+Add one-tap USDC payments to your app with the pay() helper and Base Pay Button.
+
+​
+Why Base Pay?
+USDC on Base is a fully-backed digital dollar that settles in seconds and costs pennies in gas. Base Pay lets you accept those dollars with a single click—no cards, no FX fees, no chargebacks.
+Any user can pay – works with every Base Account (smart-wallet) out of the box.
+USDC, not gas – you charge in dollars; gas sponsorship is handled automatically.
+Fast – most payments confirm in <2 seconds on Base.
+Funded accounts – users pay with USDC from their Base Account or Coinbase Account.
+No extra fees – you receive the full amount.
+Please Follow the Brand Guidelines
+If you intend on using the BasePayButton, please follow the Brand Guidelines to ensure consistency across your application.
+
+Base Pay
+
+
+Base Pay
+​
+Client-side (Browser SDK)
+Browser (SDK)
+
+Copy
+
+Ask AI
+
+import { pay, getPaymentStatus } from '@base-org/account';
+
+// Trigger a payment – user will see a popup from their wallet service
+const { id } = await pay({
+  amount: '1.00',           // USD amount (we quote USDC internally)
+  to:    '0xRecipient',     // your address
+  testnet: true            // set false for Mainnet
+});
+
+// Option 1: Poll until mined
+const { status } = await getPaymentStatus({ 
+  id,
+  testnet: true            // MUST match the testnet setting used in pay()
+});
+if (status === 'completed') console.log('🎉 payment settled');
+Important: The testnet parameter in getPaymentStatus() must match the value used in the original pay() call. If you initiated a payment on testnet with testnet: true, you must also pass testnet: true when checking its status.
+This is what the user will see when prompted to pay:
+Pay Popup
+​
+Collect user information (optional)
+Need an email, phone, or shipping address at checkout? Pass a payerInfo object:
+
+Copy
+
+Ask AI
+await pay({
+  amount: '25.00',
+  to: '0xRecipient',
+  payerInfo: {
+    requests: [
+      { type: 'email' },
+      { type: 'phoneNumber', optional: true }
+    ],
+    callbackURL: 'https://your-api.com/validate' // Optional - for server-side validation
+  }
+});
+Supported request types:
+type	returns
+email	string
+name	{ firstName, familyName }
+phoneNumber	{ number, country }
+physicalAddress	full address object
+onchainAddress	string
+Required by default — set optional: true to avoid aborting the payment if the user declines.
+How to validate the user’s information?
+You can use the callbackURL to validate the user’s information on the server side.
+Learn more about this in the callbackURL reference.
+​
+Polling example
+Backend (SDK)
+
+Copy
+
+Ask AI
+import { getPaymentStatus } from '@base-org/account';
+
+export async function checkPayment(txId, testnet = false) {
+  const status = await getPaymentStatus({ 
+    id: txId,
+    testnet  // Must match the testnet setting from the original pay() call
+  });
+  if (status.status === 'completed') {
+    // fulfil order
+  }
+}
+​
+Add the Base Pay Button
+Use the pre-built component for a native look-and-feel:
+Checkout.tsx
+
+Copy
+
+Ask AI
+import { BasePayButton } from '@base-org/account-ui/react';
+import { pay } from '@base-org/account';
+
+export function Checkout() {
+  return (
+    <BasePayButton
+      colorScheme="light"
+      onClick={() => pay({ amount: '5.00', to: '0xRecipient' })}
+    />
+  );
+}
+See full props and theming options in the Button Reference and Brand Guidelines.
+Please Follow the Brand Guidelines
+If you intend on using the BasePayButton, please follow the Brand Guidelines to ensure consistency across your application.
+
+Base Pay
+
+
+Base Pay
+​
+Test on Base Sepolia
+Get test USDC from the Circle Faucet (select “Base Sepolia”).
+Pass testnet: true in your pay() and getPaymentStatus() calls.
+Use Sepolia BaseScan to watch the transaction.Guides
+Authenticate Users
+
+Copy page
+
+Let a user click “Sign in with Base,” prove ownership of their onchain account, and give your server everything it needs to create a session – using open standards and no passwords
+
+​
+Why wallet signatures instead of passwords?
+No new passwords – authentication happens with the key the user already controls.
+Nothing to steal or reuse – each login is a one-off, domain-bound signature that never leaves the user’s device.
+Wallet-agnostic – works in any EIP-1193 wallet (browser extension, mobile deep-link, embedded provider) and follows the open “Sign in with Ethereum” (SIWE) EIP-4361 standard.
+Base Accounts build on those standards so you can reuse any SIWE tooling – while still benefiting from passkeys, session keys, and smart-wallet security.
+Please Follow the Brand Guidelines
+If you intend on using the SignInWithBaseButton, please follow the Brand Guidelines to ensure consistency across your application.
+
+Sign in with Base
+
+
+Sign in with Base
+​
+High-level flow
+Account
+SDK
+"App Server"
+Browser
+User
+Account
+SDK
+"App Server"
+Browser
+User
+alt
+[Generate locally]
+[Prefetch]
+randomNonce()
+GET /auth/nonce (on page load)
+nonce
+Click "Sign in with Base"
+wallet_connect(signInWithEthereum {nonce})
+wallet_connect(...)
+Approve connection
+{address, message, signature}
+{address, message, signature}
+POST /auth/verify {address, message, signature}
+session token / JWT
+Undeployed Smart Wallets?
+Base Account signatures include the ERC-6492 wrapper so they can be verified even before the wallet contract is deployed. Viem’s verifyMessage and verifyTypedData handle this automatically.
+​
+Implementation
+​
+Code Snippets
+
+Browser (SDK)
+
+Backend (Viem)
+
+Copy
+
+Ask AI
+import { createBaseAccountSDK } from "@base-org/account";
+import crypto from 'crypto';
+
+// Initialize the SDK (no config needed for defaults)
+const provider = createBaseAccountSDK().getProvider();
+
+// 1 — get a fresh nonce (generate locally or prefetch from backend)
+const nonce = window.crypto.randomUUID().replace(/-/g, '');
+// OR prefetch from server
+// const nonce = await fetch('/auth/nonce').then(r => r.text()); 
+
+// 2 — connect and authenticate
+try {
+  const { accounts } = await provider.request({
+    method: 'wallet_connect',
+    params: [{
+      version: '1',
+      capabilities: {
+        signInWithEthereum: { 
+          nonce, 
+          chainId: '0x2105' // Base Mainnet - 8453
+        }
+      }
+    }]
+  });
+  const { address } = accounts[0];
+  const { message, signature } = accounts[0].capabilities.signInWithEthereum;
+  await fetch('/auth/verify', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ address, message, signature })
+  });
+} catch (err) {
+  console.error(`err ${err}`);
+}
+If using the above code beyond Base Account, note that not every wallet supports the new wallet_connect method yet. If the call throws [method_not_supported], fall back to using eth_requestAccounts and personal_sign.
+To avoid popup blockers, fetch or generate the nonce before the user presses “Sign in with Base” (for example on page load). For security, the only requirement is that your backend keeps track of every nonce and refuses any that are reused – regardless of where it originated.
+​
+Example Express Server
+server/auth.ts
+
+Copy
+
+Ask AI
+import crypto from 'crypto';
+import express from 'express';
+import { createPublicClient, http } from 'viem';
+import { base } from 'viem/chains';
+
+const app = express();
+app.use(express.json());
+
+// Simple in-memory nonce store (swap for Redis or DB in production)
+const nonces = new Set<string>();
+
+app.get('/auth/nonce', (_, res) => {
+  const nonce = crypto.randomBytes(16).toString('hex');
+  nonces.add(nonce);
+  res.send(nonce);
+});
+
+const client = createPublicClient({ chain: base, transport: http() });
+
+app.post('/auth/verify', async (req, res) => {
+  const { address, message, signature } = req.body;
+
+  // 1. Check nonce hasn\'t been reused
+  const nonce = message.match(/at (\w{32})$/)?.[1];
+  if (!nonce || !nonces.delete(nonce)) {
+    return res.status(400).json({ error: 'Invalid or reused nonce' });
+  }
+
+  // 2. Verify signature
+  const valid = await client.verifyMessage({ address, message, signature });
+  if (!valid) return res.status(401).json({ error: 'Invalid signature' });
+
+  // 3. Create session / JWT here
+  res.json({ ok: true });
+});
+
+app.listen(3001, () => console.log('Auth server listening on :3001'));
+​
+Add the Base Sign In With Base Button
+Use the pre-built component for a native look-and-feel:
+App.tsx
+
+Copy
+
+Ask AI
+import { SignInWithBaseButton } from '@base-org/account-ui/react';
+
+export function App() {
+  return (
+    <SignInWithBaseButton
+      colorScheme="light"
+      onClick={() => signInWithBase()}
+    />
+  );
+}
+See full props and theming options in the Button Reference and Brand Guidelines.Guides
+Batch Transactions
+
+Copy page
+
+With Base Account, you can send multiple onchain calls in a single transaction. Doing so improves the UX of multi-step interactions by reducing them to a single click. A common example of where you might want to leverage batch transactions is an ERC-20 approve followed by a swap.
+You can submit batch transactions by using the wallet_sendCalls RPC method, defined in EIP-5792.
+​
+Installation
+Install the Base Account SDK:
+
+npm
+
+pnpm
+
+yarn
+
+bun
+
+Copy
+
+Ask AI
+npm install @base-org/account
+​
+Setup
+​
+Initialize the SDK
+Import and create the Base Account SDK instance:
+
+Copy
+
+Ask AI
+import { createBaseAccountSDK, base } from '@base-org/account';
+
+const sdk = createBaseAccountSDK({
+  appName: 'Base Account SDK Demo',
+  appLogoUrl: 'https://base.org/logo.png',
+  appChainIds: [base.constants.CHAIN_IDS.base],
+});
+
+const provider = sdk.getProvider();
+​
+Basic Batch Transaction
+​
+Simple Multiple Transfers
+Send multiple ETH transfers in a single transaction:
+
+Copy
+
+Ask AI
+import { createBaseAccountSDK, getCryptoKeyAccount, base } from '@base-org/account';
+import { numberToHex, parseEther } from 'viem';
+
+const sdk = createBaseAccountSDK({
+  appName: 'Batch Transaction Demo',
+  appLogoUrl: 'https://base.org/logo.png',
+  appChainIds: [base.constants.CHAIN_IDS.base],
+});
+
+const provider = sdk.getProvider();
+
+async function sendBatchTransfers() {
+  try {
+    // Get crypto account
+    const cryptoAccount = await getCryptoKeyAccount();
+    const fromAddress = cryptoAccount?.account?.address;
+
+    // Prepare batch calls
+    const calls = [
+      {
+        to: '0xd8da6bf26964af9d7eed9e03e53415d37aa96045',
+        value: numberToHex(parseEther('0.001')), // 0.001 ETH
+        data: '0x', // Empty data for simple transfer
+      },
+      {
+        to: '0x742d35Cc6634C0532925a3b844Bc9e7595f6E456',
+        value: numberToHex(parseEther('0.001')), // 0.001 ETH  
+        data: '0x', // Empty data for simple transfer
+      }
+    ];
+
+    // Send batch transaction
+    const result = await provider.request({
+      method: 'wallet_sendCalls',
+      params: [{
+        version: '2.0.0',
+        from: fromAddress,
+        chainId: numberToHex(base.constants.CHAIN_IDS.base),
+        atomicRequired: true, // All calls must succeed or all fail
+        calls: calls
+      }]
+    });
+
+    console.log('Batch transaction sent:', result);
+    return result;
+  } catch (error) {
+    console.error('Batch transaction failed:', error);
+    throw error;
+  }
+}
+​
+Contract Interactions
+​
+ERC-20 Approve and Transfer
+A common pattern is to approve and then transfer ERC-20 tokens:
+
+Copy
+
+Ask AI
+import { createBaseAccountSDK, getCryptoKeyAccount, base } from '@base-org/account';
+import { numberToHex, parseUnits, encodeFunctionData } from 'viem';
+
+// ERC-20 ABI for approve and transfer functions
+const erc20Abi = [
+  {
+    name: 'approve',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'spender', type: 'address' },
+      { name: 'amount', type: 'uint256' }
+    ],
+    outputs: [{ name: '', type: 'bool' }]
+  },
+  {
+    name: 'transfer',
+    type: 'function', 
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'to', type: 'address' },
+      { name: 'amount', type: 'uint256' }
+    ],
+    outputs: [{ name: '', type: 'bool' }]
+  }
+] as const;
+
+async function approveAndTransfer() {
+  const sdk = createBaseAccountSDK({
+    appName: 'ERC-20 Batch Demo',
+    appLogoUrl: 'https://base.org/logo.png',
+    appChainIds: [base.constants.CHAIN_IDS.base],
+  });
+
+  const provider = sdk.getProvider();
+  const cryptoAccount = await getCryptoKeyAccount();
+  const fromAddress = cryptoAccount?.account?.address;
+
+  const tokenAddress = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'; // USDC on Base
+  const spenderAddress = '0x3fc91a3afd70395cd496c647d5a6cc9d4b2b7fad'; // Example spender
+  const recipientAddress = '0xd8da6bf26964af9d7eed9e03e53415d37aa96045';
+  const amount = parseUnits('10', 6); // 10 USDC (6 decimals)
+
+  const calls = [
+    {
+      to: tokenAddress,
+      value: '0x0',
+      data: encodeFunctionData({
+        abi: erc20Abi,
+        functionName: 'approve',
+        args: [spenderAddress, amount]
+      })
+    },
+    {
+      to: tokenAddress,
+      value: '0x0', 
+      data: encodeFunctionData({
+        abi: erc20Abi,
+        functionName: 'transfer',
+        args: [recipientAddress, amount]
+      })
+    }
+  ];
+
+  const result = await provider.request({
+    method: 'wallet_sendCalls',
+    params: [{
+      version: '2.0.0',
+      from: fromAddress,
+      chainId: numberToHex(base.constants.CHAIN_IDS.base),
+      atomicRequired: true,
+      calls: calls
+    }]
+  });
+
+  return result;
+}
+​
+Advanced Features
+​
+Checking Wallet Capabilities
+Before sending batch transactions, you can check if the wallet supports atomic batching:
+
+Copy
+
+Ask AI
+async function checkCapabilities() {
+  const provider = sdk.getProvider();
+  
+  try {
+    const cryptoAccount = await getCryptoKeyAccount();
+    const address = cryptoAccount?.account?.address;
+    
+    const capabilities = await provider.request({
+      method: 'wallet_getCapabilities',
+      params: [address]
+    });
+    
+    const baseCapabilities = capabilities[base.constants.CHAIN_IDS.base];
+    
+    if (baseCapabilities?.atomicBatch?.supported) {
+      console.log('Atomic batching is supported');
+      return true;
+    } else {
+      console.log('Atomic batching is not supported');
+      return false;
+    }
+  } catch (error) {
+    console.error('Failed to check capabilities:', error);
+    return false;
+  }
+}
+​
+Non-Atomic Batching
+Sometimes you want calls to execute sequentially, even if some fail:
+
+Copy
+
+Ask AI
+const result = await provider.request({
+  method: 'wallet_sendCalls',
+  params: [{
+    version: '2.0.0',
+    from: fromAddress,
+    chainId: numberToHex(base.constants.CHAIN_IDS.base),
+    atomicRequired: false, // Allow partial execution
+    calls: calls
+  }]
+});
+​
+Error Handling
+Handle common batch transaction errors:
+
+Copy
+
+Ask AI
+async function sendBatchWithErrorHandling(calls: any[]) {
+  try {
+    const cryptoAccount = await getCryptoKeyAccount();
+    const fromAddress = cryptoAccount?.account?.address;
+    
+    const result = await provider.request({
+      method: 'wallet_sendCalls',
+      params: [{
+        version: '2.0.0',
+        from: fromAddress,
+        chainId: numberToHex(base.constants.CHAIN_IDS.base),
+        atomicRequired: true,
+        calls: calls
+      }]
+    });
+    
+    return { success: true, data: result };
+  } catch (error: any) {
+    console.error('Batch transaction error:', error);
+    
+    if (error.code === 4001) {
+      return { success: false, error: 'User rejected the transaction' };
+    } else if (error.code === 5740) {
+      return { success: false, error: 'Batch too large for wallet to process' };
+    } else if (error.code === -32602) {
+      return { success: false, error: 'Invalid request format' };
+    } else {
+      return { success: false, error: error.message || 'Unknown error' };
+    }
+  }
+}Guides
+Sponsor Gas
+
+Copy page
+
+Use Paymasters to sponsor your users’ transactions
+
+One of the biggest UX enhancements unlocked by Base Account is the ability for app developers to sponsor their users’ transactions. If your app supports Base Account, you can start sponsoring your users’ transactions by using standardized Paymaster service communication enabled by new wallet RPC methods.
+This guide is specific to using Base Account, you can find our more about using Paymasters with Base in the Base Go Gasless page.
+​
+Implementation Guide
+1
+Set up your Paymaster service
+
+As a prerequisite, you’ll need to obtain a Paymaster service URL from a Paymaster service provider.
+We’ll use Coinbase Developer Platform as a Paymaster service provider, currently offering up to $15k in gas credits as part of the Base Gasless Campaign.
+ERC-7677-Compliant Paymaster Providers
+If you choose to use a different Paymaster service provider, ensure they are ERC-7677-compliant.
+Once you have signed up for Coinbase Developer Platform, you get your Paymaster service URL by navigating to Onchain Tools > Paymaster as shown below:
+Paymaster CDP
+Should you create a proxy for your Paymaster service?
+We recommend using a proxy to protect the Paymaster service URL to prevent it from being exposed/leaked on a frontend client.
+For local development, you can use the same URL for the Paymaster service and the proxy.
+Once you have your Paymaster service URL, you can proceed to setting up your contracts allowlist. This is a list of contracts and function calls that you want to be sponsored by the Paymaster.
+Paymaster CDP Allowlist
+Congrats! You’ve set up your Paymaster service and contracts allowlist. It’s time to set up the Base Account SDK.
+You can also choose to create custom advanced policies !
+You can create a willSponsor function to add some extra validation if you need more control over the policy enforcement.
+willSponsor is most likely not needed if you are using Coinbase Developer Platform as it has built-in policy enforcement features, but know that this is still possible if you need it.
+2
+Setup Base Account SDK
+
+Install and initialize the Base Account SDK to interact with Base Account:
+​
+Installation
+
+npm
+
+pnpm
+
+yarn
+
+bun
+
+Copy
+
+Ask AI
+npm install @base-org/account
+​
+Initialize the SDK
+
+Copy
+
+Ask AI
+import { createBaseAccountSDK, base } from '@base-org/account';
+
+const sdk = createBaseAccountSDK({
+  appName: 'Paymaster Demo',
+  appLogoUrl: 'https://base.org/logo.png',
+  appChainIds: [base.constants.CHAIN_IDS.baseSepolia], // or base.constants.CHAIN_IDS.base for mainnet
+});
+
+const provider = sdk.getProvider();
+3
+Send transactions with Paymaster service capability
+
+Once you have your Paymaster service set up, you can now use wallet_sendCalls with paymaster capabilities to sponsor transactions.
+Pass in the proxy URL
+If you set up a proxy in your app’s backend as recommended in step (1) above, you’ll want to pass in the proxy URL you created.
+​
+Basic Sponsored Transaction
+Here’s how to send a sponsored transaction using the wallet_sendCalls RPC method:
+
+Copy
+
+Ask AI
+import { createBaseAccountSDK, getCryptoKeyAccount, base } from '@base-org/account';
+import { numberToHex, encodeFunctionData, parseEther } from 'viem';
+
+// Example NFT contract ABI
+const nftABI = [
+  {
+    name: 'safeMint',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [{ name: 'to', type: 'address' }],
+    outputs: []
+  }
+] as const;
+
+async function sendSponsoredTransaction() {
+  const sdk = createBaseAccountSDK({
+    appName: 'Paymaster Demo',
+    appLogoUrl: 'https://base.org/logo.png',
+    appChainIds: [base.constants.CHAIN_IDS.baseSepolia],
+  });
+
+  const provider = sdk.getProvider();
+  
+  try {
+    // Get the user's account
+    const cryptoAccount = await getCryptoKeyAccount();
+    const fromAddress = cryptoAccount?.account?.address;
+    
+    if (!fromAddress) {
+      throw new Error('No account found');
+    }
+
+    // Your Paymaster service URL (use your proxy URL)
+    const paymasterServiceUrl = process.env.NEXT_PUBLIC_PAYMASTER_PROXY_SERVER_URL;
+    
+    // Prepare the transaction call
+    const nftAddress = '0x119Ea671030FBf79AB93b436D2E20af6ea469a19';
+    const calls = [
+      {
+        to: nftAddress,
+        value: '0x0',
+        data: encodeFunctionData({
+          abi: nftABI,
+          functionName: 'safeMint',
+          args: [fromAddress]
+        })
+      }
+    ];
+
+    // Send the transaction with paymaster capabilities
+    const result = await provider.request({
+      method: 'wallet_sendCalls',
+      params: [{
+        version: '1.0',
+        chainId: numberToHex(base.constants.CHAIN_IDS.baseSepolia),
+        from: fromAddress,
+        calls: calls,
+        capabilities: {
+          paymasterService: {
+            url: paymasterServiceUrl
+          }
+        }
+      }]
+    });
+
+    console.log('Sponsored transaction sent:', result);
+    return result;
+  } catch (error) {
+    console.error('Sponsored transaction failed:', error);
+    throw error;
+  }
+}
+​
+Multiple Sponsored Transactions
+You can also batch multiple transactions and have them all sponsored:
+
+Copy
+
+Ask AI
+async function sendMultipleSponsoredTransactions() {
+  const sdk = createBaseAccountSDK({
+    appName: 'Paymaster Demo',
+    appLogoUrl: 'https://base.org/logo.png',
+    appChainIds: [base.constants.CHAIN_IDS.baseSepolia],
+  });
+
+  const provider = sdk.getProvider();
+  const cryptoAccount = await getCryptoKeyAccount();
+  const fromAddress = cryptoAccount?.account?.address;
+
+  const paymasterServiceUrl = process.env.NEXT_PUBLIC_PAYMASTER_PROXY_SERVER_URL;
+
+  // Multiple calls in a single sponsored transaction
+  const calls = [
+    {
+      to: '0xd8da6bf26964af9d7eed9e03e53415d37aa96045',
+      value: numberToHex(parseEther('0.001')),
+      data: '0x' // Simple ETH transfer
+    },
+    {
+      to: '0x742d35Cc6634C0532925a3b844Bc9e7595f6E456',
+      value: numberToHex(parseEther('0.001')),
+      data: '0x' // Another ETH transfer
+    }
+  ];
+
+  const result = await provider.request({
+    method: 'wallet_sendCalls',
+    params: [{
+      version: '1.0',
+      chainId: numberToHex(base.constants.CHAIN_IDS.baseSepolia),
+      from: fromAddress,
+      calls: calls,
+      capabilities: {
+        paymasterService: {
+          url: paymasterServiceUrl
+        }
+      }
+    }]
+  });
+
+  return result;
+}
+​
+Check Paymaster Capabilities
+Before sending sponsored transactions, you can check if the wallet supports paymaster services:
+
+Copy
+
+Ask AI
+async function checkPaymasterSupport() {
+  const sdk = createBaseAccountSDK({
+    appName: 'Paymaster Demo',
+    appLogoUrl: 'https://base.org/logo.png',
+    appChainIds: [base.constants.CHAIN_IDS.baseSepolia],
+  });
+
+  const provider = sdk.getProvider();
+  const cryptoAccount = await getCryptoKeyAccount();
+  const address = cryptoAccount?.account?.address;
+
+  try {
+    const capabilities = await provider.request({
+      method: 'wallet_getCapabilities',
+      params: [address]
+    });
+
+    const baseCapabilities = capabilities[base.constants.CHAIN_IDS.baseSepolia];
+    
+    if (baseCapabilities?.paymasterService?.supported) {
+      console.log('Paymaster service is supported');
+      return true;
+    } else {
+      console.log('Paymaster service is not supported');
+      return false;
+    }
+  } catch (error) {
+    console.error('Failed to check paymaster capabilities:', error);
+    return false;
+  }
+}
+That’s it! Base Account will handle the rest. If your Paymaster service is able to sponsor the transaction, in the UI Base Account will indicate to your user that the transaction is sponsored.Use Sub Accounts
+
+Copy page
+
+Learn how to create and manage Sub Accounts using Base Account SDK
+
+​
+What are Sub Accounts?
+Base Account’s self-custodial design requires a user passkey prompt for each wallet interaction, such as transactions or message signing. While this ensures user awareness and approval of every wallet interaction, it can impact user experience in applications requiring frequent wallet interactions.
+To support Base Account with user experiences that need more developer control over wallet interactions, we’ve built Sub Accounts in conjunction with ERC-7895, a new wallet RPC for creating hierarchical relationships between wallet accounts.
+Sub Accounts allow you to provision wallet accounts that are directly embedded in your application for your users. You can control when a Sub Account is created and interact with them just as you would with another wallet via the wallet provider or popular web3 libraries like OnchainKit, wagmi, and viem.
+These Sub Accounts are linked to the end user’s Base Account through an onchain relationship. When combined with our Spend Permission feature, this creates a powerful foundation for provisioning and funding app accounts securely, while giving you ample control over building the user experience that makes the most sense for your application.
+​
+Key Benefits
+Seamless UX: Reduce user friction by eliminating repeated signing prompts
+Developer Control: Manage when and how Sub Accounts are created
+Secure Relationships: Onchain linking between main account and sub accounts
+Spend Permissions: Control what Sub Accounts can spend and when
+Easy Integration: Works with existing web3 libraries and tools
+If you would like to see a live demo of Sub Accounts in action, check out our Sub Accounts Demo.
+Pair with Spend Permissions
+In order to make your UX more seamless, you can pair Sub Accounts with the Spend Permissions to make transactions on behalf of the user.
+​
+Installation
+Install the Base Account SDK:
+
+npm
+
+pnpm
+
+yarn
+
+bun
+
+Copy
+
+Ask AI
+npm install @base-org/account
+​
+Basic Setup
+​
+Initialize the SDK
+First, set up the Base Account SDK with Sub Account support:
+
+Copy
+
+Ask AI
+import { createBaseAccountSDK, getCryptoKeyAccount } from '@base-org/account';
+import { base } from 'viem/chains';
+
+// Initialize SDK with Sub Account configuration
+const sdk = createBaseAccountSDK({
+  appName: 'Base Account SDK Demo',
+  appLogoUrl: 'https://base.org/logo.png',
+  appChainIds: [base.id],
+});
+
+// Get an EIP-1193 provider
+const provider = sdk.getProvider()
+​
+Using Sub Accounts
+​
+Create a New Sub Account
+Create a Sub Account for your application using the provider RPC method:
+
+Copy
+
+Ask AI
+// Create sub account
+const subAccount = await provider.request({
+  method: 'wallet_addSubAccount',
+  params: [
+    {
+      account: {
+        type: 'create',
+      },
+    }
+  ],
+});
+
+console.log('Sub Account created:', subAccount.address);
+Tip:
+Make sure to authenticate the user with their universal account before creating a Sub Account. For that, you can choose one of the following options:
+Follow the Authenticate users guide
+Simply use provider.request({ method: 'eth_requestAccounts' }); for a simple wallet connection
+Create a Sub Account using the SDK convenience method:
+
+Copy
+
+Ask AI
+// Create new sub account
+const subAccount = await sdk.subAccount.create();
+
+console.log('Sub Account created:', subAccount.address);
+This is what the user will see when prompted to create a Sub Account:
+Sub Account Creation Flow
+​
+Import an existing Sub Account
+If you already have a deployed Smart Contract Account, you can import it as a Sub Account using the provider RPC method:
+
+Copy
+
+Ask AI
+const subAccount = await provider.request({
+  method: 'wallet_addSubAccount',
+  params: [
+    {
+      account: {
+        type: 'deployed',
+        address: '0xYourSmartContractAccountAddress',
+        chainId: 8453 // the chain the account is deployed on
+      },
+    }
+  ],
+});
+
+console.log('Sub Account added:', subAccount.address);
+Before the Sub Account is imported, you will need to add the Base Account address as an owner of the Sub Account. This currently needs to be done manually by calling the addOwnerAddress or addOwnerPublicKey functions on the Smart Contract of the Sub Account that was imported and setting the Base Account address as the owner.
+Additionally, only Coinbase Smart Wallet contracts are currently supported for importing as a Sub Account into your Base Account.
+​
+Get Existing Sub Account
+Retrieve an existing Sub Account using the provider RPC method:
+
+Copy
+
+Ask AI
+// Get the universal account
+const [universalAddress] = await provider.request({
+  method: "eth_requestAccounts",
+  params: []
+})
+
+// Get sub account for universal account
+const { subAccounts: [subAccount] } = await provider.request({
+  method: 'wallet_getSubAccounts',
+  params: [{
+    account: universalAddress,
+    domain: window.location.origin,
+  }]
+})
+
+if (subAccount) {
+  console.log('Sub Account found:', subAccount.address);
+} else {
+  console.log('No Sub Account exists for this app');
+}
+Get the Sub Account associated with the current app using the SDK convenience method:
+
+Copy
+
+Ask AI
+// Get sub account
+const subAccount = await sdk.subAccount.get();
+
+console.log('Sub Account:', subAccount);
+​
+Send transactions
+To send transactions from the connected sub account you can use EIP-5792 wallet_sendCalls or eth_sendTransaction. You need to specify the from parameter to be the sub account address.
+Tip:
+When the sub account is connected, it is the second account in the array returned by eth_requestAccounts or eth_accounts.
+
+Copy
+
+Ask AI
+// Get the sub account address
+const [universalAddress, subAccountAddress] = await provider.request({
+  method: "eth_requestAccounts", // or "eth_accounts" if already connected
+  params: []
+})
+
+// wallet_sendCalls
+const callsId = await provider.request({
+  method: 'wallet_sendCalls',
+  params: [{
+    version: "2.0",
+    atomicRequired: true,
+    from: subAccountAddress,
+    calls: [{
+      to: '0x...',
+      data: '0x...',
+      value: '0x...',
+    }],
+    capabilities: {
+      // https://docs.cdp.coinbase.com/paymaster/introduction/welcome
+      paymasterUrl: "https://...",
+    },
+  }]
+})
+
+console.log('Calls sent:', callsId);
+
+
+// eth_sendTransaction
+const tx = await provider.request({
+  method: 'eth_sendTransaction',
+  params: [{
+    from: subAccountAddress,
+    to: '0x...',
+    data: '0x...',
+    value: '0x...',
+  }]
+})
+
+console.log('Transaction sent:', tx);
+​
+Add Owner Account
+Add an owner to a Sub Account:
+
+Copy
+
+Ask AI
+// Add owner account
+const ownerAccount = await sdk.subAccount.addOwner({
+  address: subAccount?.address,
+  publicKey: cryptoAccount?.account?.publicKey,
+  chainId: base.id,
+});
+
+console.log('Owner added to Sub Account');
+​
+Complete Integration Example
+Here’s a full React component that demonstrates Sub Account creation and usage:
+
+Copy
+
+Ask AI
+import { createBaseAccountSDK } from "@base-org/account";
+import { useCallback, useEffect, useState } from "react";
+import { baseSepolia } from "viem/chains";
+
+interface SubAccount {
+  address: `0x${string}`;
+  factory?: `0x${string}`;
+  factoryData?: `0x${string}`;
+}
+
+interface GetSubAccountsResponse {
+  subAccounts: SubAccount[];
+}
+
+interface WalletAddSubAccountResponse {
+  address: `0x${string}`;
+  factory?: `0x${string}`;
+  factoryData?: `0x${string}`;
+}
+
+export default function SubAccountDemo() {
+  const [provider, setProvider] = useState<ReturnType<
+    ReturnType<typeof createBaseAccountSDK>["getProvider"]
+  > | null>(null);
+  const [subAccount, setSubAccount] = useState<SubAccount | null>(null);
+  const [universalAddress, setUniversalAddress] = useState<string>("");
+  const [connected, setConnected] = useState(false);
+  const [loadingSubAccount, setLoadingSubAccount] = useState(false);
+  const [loadingUniversal, setLoadingUniversal] = useState(false);
+  const [status, setStatus] = useState("");
+
+  // Initialize SDK and crypto account
+  useEffect(() => {
+    const initializeSDK = async () => {
+      try {
+        const sdkInstance = createBaseAccountSDK({
+          appName: "Sub Account Demo",
+          appLogoUrl: "https://base.org/logo.png",
+          appChainIds: [baseSepolia.id],
+        });
+
+        // Get the provider
+        const providerInstance = sdkInstance.getProvider();
+        setProvider(providerInstance);
+
+        setStatus("SDK initialized - ready to connect");
+      } catch (error) {
+        console.error("SDK initialization failed:", error);
+        setStatus("SDK initialization failed");
+      }
+    };
+
+    initializeSDK();
+  }, []);
+
+  const connectWallet = async () => {
+    if (!provider) {
+      setStatus("Provider not initialized");
+      return;
+    }
+
+    setLoadingSubAccount(true);
+    setStatus("Connecting wallet...");
+
+    try {
+      // Connect to the wallet
+      const accounts = (await provider.request({
+        method: "eth_requestAccounts",
+        params: [],
+      })) as string[];
+
+      const universalAddr = accounts[0];
+      setUniversalAddress(universalAddr);
+      setConnected(true);
+
+      // Check for existing sub account
+      const response = (await provider.request({
+        method: "wallet_getSubAccounts",
+        params: [
+          {
+            account: universalAddr,
+            domain: window.location.origin,
+          },
+        ],
+      })) as GetSubAccountsResponse;
+
+      const existing = response.subAccounts[0];
+      if (existing) {
+        setSubAccount(existing);
+        setStatus("Connected! Existing Sub Account found");
+      } else {
+        setStatus("Connected! No existing Sub Account found");
+      }
+    } catch (error) {
+      console.error("Connection failed:", error);
+      setStatus("Connection failed");
+    } finally {
+      setLoadingSubAccount(false);
+    }
+  };
+
+  const createSubAccount = async () => {
+    if (!provider) {
+      setStatus("Provider not initialized");
+      return;
+    }
+
+    setLoadingSubAccount(true);
+    setStatus("Creating Sub Account...");
+
+    try {
+      const newSubAccount = (await provider.request({
+        method: "wallet_addSubAccount",
+        params: [
+          {
+            account: {
+              type: 'create',
+            },
+          }
+        ],
+      })) as WalletAddSubAccountResponse;
+
+      setSubAccount(newSubAccount);
+      setStatus("Sub Account created successfully!");
+    } catch (error) {
+      console.error("Sub Account creation failed:", error);
+      setStatus("Sub Account creation failed");
+    } finally {
+      setLoadingSubAccount(false);
+    }
+  };
+
+  const sendCalls = useCallback(
+    async (
+      calls: Array<{ to: string; data: string; value: string }>,
+      from: string,
+      setLoadingState: (loading: boolean) => void
+    ) => {
+      if (!provider) {
+        setStatus("Provider not available");
+        return;
+      }
+
+      setLoadingState(true);
+      setStatus("Sending calls...");
+
+      try {
+        const callsId = (await provider.request({
+          method: "wallet_sendCalls",
+          params: [
+            {
+              version: "2.0",
+              atomicRequired: true,
+              chainId: `0x${baseSepolia.id.toString(16)}`, // Convert to hex
+              from,
+              calls,
+              capabilities: {
+                // https://docs.cdp.coinbase.com/paymaster/introduction/welcome
+                // paymasterUrl: "your paymaster url",
+              },
+            },
+          ],
+        })) as string;
+
+        setStatus(`Calls sent! Calls ID: ${callsId}`);
+      } catch (error) {
+        console.error("Send calls failed:", error);
+        setStatus("Send calls failed");
+      } finally {
+        setLoadingState(false);
+      }
+    },
+    [provider]
+  );
+
+  const sendCallsFromSubAccount = useCallback(async () => {
+    if (!subAccount) {
+      setStatus("Sub account not available");
+      return;
+    }
+
+    const calls = [
+      {
+        to: "0x4bbfd120d9f352a0bed7a014bd67913a2007a878",
+        data: "0x9846cd9e", // yoink
+        value: "0x0",
+      },
+    ];
+
+    await sendCalls(calls, subAccount.address, setLoadingSubAccount);
+  }, [sendCalls, subAccount]);
+
+  const sendCallsFromUniversal = useCallback(async () => {
+    if (!universalAddress) {
+      setStatus("Universal account not available");
+      return;
+    }
+
+    const calls = [
+      {
+        to: "0x4bbfd120d9f352a0bed7a014bd67913a2007a878",
+        data: "0x9846cd9e", // yoink
+        value: "0x0",
+      },
+    ];
+
+    await sendCalls(calls, universalAddress, setLoadingUniversal);
+  }, [sendCalls, universalAddress]);
+
+  return (
+    <div className="sub-account-demo">
+      <h2>Sub Account Demo</h2>
+
+      <div className="status">
+        <p>
+          <strong>Status:</strong> {status}
+        </p>
+        {universalAddress && (
+          <p>
+            <strong>Universal Account:</strong> {universalAddress}
+          </p>
+        )}
+        {subAccount && (
+          <p>
+            <strong>Sub Account:</strong> {subAccount.address}
+          </p>
+        )}
+      </div>
+
+      <div className="actions">
+        {!connected ? (
+          <button
+            onClick={connectWallet}
+            disabled={loadingSubAccount || !provider}
+            className="connect-btn"
+          >
+            {loadingSubAccount ? "Connecting..." : "Connect Wallet"}
+          </button>
+        ) : !subAccount ? (
+          <button
+            onClick={createSubAccount}
+            disabled={loadingSubAccount}
+            className="create-btn"
+          >
+            {loadingSubAccount ? "Creating..." : "Add Sub Account"}
+          </button>
+        ) : (
+          <div>
+            <button
+              onClick={sendCallsFromSubAccount}
+              disabled={loadingSubAccount}
+              className="sub-account-btn"
+            >
+              {loadingSubAccount ? "Sending..." : "Send Calls from Sub Account"}
+            </button>
+            <button
+              onClick={sendCallsFromUniversal}
+              disabled={loadingUniversal}
+              className="universal-btn"
+            >
+              {loadingUniversal
+                ? "Sending..."
+                : "Send Calls from Universal Account"}
+            </button>
+          </div>
+        )}
+      </div>
+
+      <style jsx>{`
+        .sub-account-demo {
+          max-width: 600px;
+          margin: 0 auto;
+          padding: 20px;
+          font-family: Arial, sans-serif;
+        }
+
+        .status {
+          border-radius: 8px;
+          margin: 20px 0;
+        }
+
+        .status p {
+          margin: 5px 0;
+        }
+
+        .actions {
+          margin: 20px 0;
+        }
+
+        .connect-btn,
+        .create-btn,
+        .sub-account-btn,
+        .universal-btn {
+          background: #0052ff;
+          color: white;
+          border: none;
+          padding: 12px 24px;
+          border-radius: 8px;
+          cursor: pointer;
+          font-size: 16px;
+          margin-right: 15px;
+          margin-bottom: 10px;
+        }
+
+        .connect-btn:disabled,
+        .create-btn:disabled,
+        .sub-account-btn:disabled,
+        .universal-btn:disabled {
+          background: #ccc;
+          cursor: not-allowed;
+        }
+
+        .connect-btn:hover:not(:disabled),
+        .create-btn:hover:not(:disabled),
+        .sub-account-btn:hover:not(:disabled),
+        .universal-btn:hover:not(:disabled) {
+          background: #0041cc;
+        }
+      `}</style>
+    </div>
+  );
+}Guides
+Use Spend Permissions
+
+Copy page
+
+Learn how to use Spend Permissions to allow a trusted spender to spend user assets
+
+​
+Overview
+Spend Permissions let you designate a trusted spender that can move assets out of a user’s Base Account on their behalf.
+After the user signs the permission, the spender can initiate transfers within the limits you define — no additional prompts, pop-ups, or signatures needed from the user. This powers seamless experiences such as subscription renewals, algorithmic trading, and automated payouts.
+Read more about the Spend Permission Manager contract and supported chains on GitHub.
+​
+Usage
+​
+Request a Spend Permission
+You create an EIP-712 payload that describes the permission and ask the user to sign it. Store the resulting signature along with the permission data so you can register the permission on-chain later.
+Field Name	Type	Description
+account	address	Smart account this spend permission is valid for
+spender	address	Entity that can spend account’s tokens
+token	address	Token address (ERC-7528 native token or ERC-20 contract)
+allowance	uint160	Maximum allowed value to spend within each period
+period	uint48	Time duration for resetting used allowance on a recurring basis (seconds)
+start	uint48	Timestamp this spend permission is valid starting at (inclusive, unix seconds)
+end	uint48	Timestamp this spend permission is valid until (exclusive, unix seconds)
+salt	uint256	Arbitrary data to differentiate unique spend permissions with otherwise identical fields
+extraData	bytes	Arbitrary data to attach to a spend permission which may be consumed by the spender
+
+Copy
+
+Ask AI
+const SPEND_PERMISSION_MANAGER_ADDRESS = '0xf85210B21cC50302F477BA56686d2019dC9b67Ad' as const;
+
+const spendPermissionData = {
+  account: '0x...',
+  spender: '0x...',
+  token: '0x...',
+  allowance: '0x...',
+  period: '0x...',
+  start: new Date().getTime() / 1000,
+  end: new Date().getTime() / 1000 + 60 * 60 * 24 * 30, // 30 days
+  salt: '0x',
+  extraData: '0x',
+}
+
+const eip712Data = {
+  domain: {
+    name: 'Spend Permission Manager',
+    version: '1',
+    chainId: 8453, // or any other supported chain
+    verifyingContract: SPEND_PERMISSION_MANAGER_ADDRESS,
+  },
+  types: {
+    SpendPermission: [
+      { name: 'account', type: 'address' },
+      { name: 'spender', type: 'address' },
+      { name: 'token', type: 'address' },
+      { name: 'allowance', type: 'uint160' },
+      { name: 'period', type: 'uint48' },
+      { name: 'start', type: 'uint48' },
+      { name: 'end', type: 'uint48' },
+      { name: 'salt', type: 'uint256' },
+      { name: 'extraData', type: 'bytes' },
+    ],
+  },
+  primaryType: 'SpendPermission',
+  message: spendPermissionData,
+};
+
+// Request a signature from the user
+const signature = await provider.request({
+  method: 'eth_signTypedData_v4',
+  params: [account, JSON.stringify(eip712Data)],
+});
+
+console.log('Spend Permission signature:', signature);
+​
+Use the Spend Permission
+Using a permission is a two-step flow:
+Register the permission — Call approveWithSignature with the signed payload to store the permission on-chain.
+Spend tokens — From the spender address, call spend with the same payload and an amount. The contract validates the permission and transfers tokens from the user’s account to the spender.
+You can batch the two calls into a single transaction (see the example below), or send them separately. Registration only needs to happen once per permission.
+The easiest way to encode these function calls is to use a tool such as viem.
+Find the ABI for the Spend Permission Manager contract here or on Basescan.
+
+Copy
+
+Ask AI
+const SPEND_PERMISSION_MANAGER_ADDRESS = '0xf85210B21cC50302F477BA56686d2019dC9b67Ad' as const;
+const spendPermissionManagerAbi = [...]; // See the ABI file above
+
+// Approval call
+const approvalCallData = encodeFunctionData({
+  abi: spendPermissionManagerAbi,
+  functionName: 'approveWithSignature',
+  args: [spendPermissionData, signature],
+});
+
+// Spend call
+const spendCallData = encodeFunctionData({
+  abi: spendPermissionManagerAbi,
+  functionName: 'spend',
+  args: [spendPermissionData, amount],
+});
+
+// Send the calls from the spender wallet using an EIP-1193 wallet provider
+// const provider = ...
+
+// This combines the approval and spend calls into a single transaction
+// but you can also send them separately and the approval only needs to be done once
+const callsId = await provider.request({
+  method: 'wallet_sendCalls',
+  params: [
+    {
+      version: "2.0",
+      atomicRequired: true,
+      from: spender,
+      calls: [
+        { to: SPEND_PERMISSION_MANAGER_ADDRESS, data: approvalCallData, value: '0x0' },
+        { to: SPEND_PERMISSION_MANAGER_ADDRESS, data: spendCallData, value: '0x0' },
+      ],
+    }
+  ],
+})Guides
+Use Coinbase Balances Onchain
+
+Copy page
+
+How to use Coinbase balances onchain with Base Account
+
+With MagicSpend, Base Account users can use their Coinbase balances onchain. This means users can easily start using onchain apps without needing to onramp funds into their wallet.
+This also means that apps might not have all the balance information typically available to them by reading onchain data. Base Account indicates that this is the case by responding to wallet_getCapabilities RPC calls with the auxiliaryFunds capability for each chain Base Account users can use their Coinbase balances on.
+If your app supports Base Account, it should not assume it knows the full balances available to a user if the auxiliaryFunds capability is present on a given chain. For example, if your app disables a transaction button if it sees that the wallet has insufficient funds, your app should take auxiliaryFunds into account and enable the button if the account has auxiliaryFunds on the chain the user is transacting on.
+​
+Why it matters
+MagicSpend makes onboarding smoother by letting users pay gas or send funds even when their onchain wallet balance is zero. Your interface should therefore never disable an action just because the onchain balance is insufficient.
+Ensure you have the user’s address stored in your component state (from your wallet connection flow).
+Drop the component below into your UI. It will check whether MagicSpend (auxiliaryFunds) is available for that address on Base and if not, disable the send button accordingly.
+SendButton.tsx
+
+Copy
+
+Ask AI
+import { useEffect, useState } from "react";
+import { createBaseAccountSDK, base } from "@base-org/account";
+
+const sdk = createBaseAccountSDK({
+  appName: "Magic Spend Demo",
+  appLogoUrl: "https://base.org/logo.png",
+  appChainIds: [base.constants.CHAIN_IDS.base],
+});
+
+const provider = sdk.getProvider();
+
+interface Props {
+  address?: string; // wallet address from your app state
+}
+
+export function SendButton({ address }: Props) {
+  const [hasAuxFunds, setHasAuxFunds] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    if (!address) return; // Wallet not connected yet
+
+    (async () => {
+      try {
+        const capabilities = await provider.request({
+          method: "wallet_getCapabilities",
+          params: [address],
+        });
+        const supported =
+          capabilities?.[base.constants.CHAIN_IDS.base]?.auxiliaryFunds
+            ?.supported ?? false;
+        setHasAuxFunds(supported);
+      } catch (err) {
+        console.error("wallet_getCapabilities failed", err);
+        setHasAuxFunds(false);
+      }
+    })();
+  }, [address]);
+
+  const disabled = hasAuxFunds !== true;
+
+  return (
+    <button disabled={disabled} onClick={() => console.log("Send!")}>
+      {hasAuxFunds ? "Send Transaction" : "Insufficient Balance"}
+    </button>
+  );
+}
+​
+What the code does
+Receives the current address from your own wallet logic.
+Calls wallet_getCapabilities whenever the address changes.
+Reads auxiliaryFunds.supported for the Base chain (8453).
+Enables the button when MagicSpend is available; otherwise shows “Insufficient Balance”.
+​
+Base Pay integrates Magic Spend by default
+Thanks to Magic Spend, Base Pay allows users to pay with their USDC balance on Coinbase by default.
+Pay with Coinbase on Base Account
+​
+Next steps
+Handle loading/error states if you need fine-grained UX
+Combine this check with your existing onchain balance logic for fallback flowsSign and Verify Typed Data
+
+Copy page
+
+EIP-712 structured data signing and verification for Base Account
+
+​
+Overview
+Base Account uses Smart Wallet contracts under the hood. Smart contract wallets introduce a few differences in how messages are signed compared to traditional Externally Owned Accounts (EOAs). This guide explains how to properly implement message signing using Base Account, covering both standard messages and typed data signatures, as well as some edge cases.
+​
+Introduction
+Before walking through the details of how to sign and verify messages using Base Account, it’s important to understand some of the use cases of signing messages with wallets, as well as the key differences between EOAs and smart contracts when it comes to signing messages.
+​
+Use Cases for Wallet Signatures
+Blockchain-based apps use wallet signatures for two main categories:
+Signatures for offchain verification: Used for authenticating users in onchain apps (e.g., Sign-In with Ethereum) to avoid spoofing. The signature is not used for any onchain action.
+Signatures for onchain verification: Used for signing onchain permissions (e.g., Permit2) or batching transactions. The signature is usually stored for future transactions.
+​
+Smart Contract Wallet Differences
+Smart contract wallets handle signatures differently from EOAs in several ways:
+The contract itself doesn’t produce signatures - instead, the owner (e.g., passkey) signs messages
+Verification happens through the isValidSignature function defined in EIP-1271
+Smart contract wallet addresses are often deterministic, allowing signature support before deployment via ERC-6492
+​
+High-level flow
+In this guide, we’ll walk through the high-level flow of signing and verifying messages using Base Account.
+Account
+SDK
+"App Server"
+Browser
+User
+Account
+SDK
+"App Server"
+Browser
+User
+Trigger signing action
+GET /typed-data/prepare
+EIP-712 payload
+eth_signTypedData_v4
+eth_signTypedData_v4(payload)
+Review and approve signature
+signature
+signature
+POST /typed-data/verify {payload, signature}
+verification result
+​
+Implementation
+For the purposes of this guide, we’ll use a simple example of a typed data payload that contains a permission to spend user’s funds (see Spend Permissions)
+​
+Code Snippets
+
+Browser (SDK)
+
+Backend (Viem)
+
+Copy
+
+Ask AI
+import { createBaseAccountSDK } from "@base-org/account";
+
+// Initialize the SDK
+const provider = createBaseAccountSDK().getProvider();
+
+// 1 — Prepare the typed data payload
+const typedData = {
+  domain: {
+    name: 'Spend Permission Manager',
+    version: '1',
+    chainId: 8453, // or any other supported chain
+    verifyingContract: SPEND_PERMISSION_MANAGER_ADDRESS,
+  },
+  types: {
+    SpendPermission: [
+      { name: 'account', type: 'address' },
+      { name: 'spender', type: 'address' },
+      { name: 'token', type: 'address' },
+      { name: 'allowance', type: 'uint160' },
+      { name: 'period', type: 'uint48' },
+      { name: 'start', type: 'uint48' },
+      { name: 'end', type: 'uint48' },
+      { name: 'salt', type: 'uint256' },
+      { name: 'extraData', type: 'bytes' },
+    ],
+  },
+  primaryType: 'SpendPermission',
+  message: spendPermissionData,
+};
+
+// 2 — Request signature from user
+try {
+  const accounts = await provider.request({
+    method: 'eth_requestAccounts'
+  });
+  
+  const signature = await provider.request({
+    method: 'eth_signTypedData_v4',
+    params: [accounts[0], JSON.stringify(typedData)]
+  });
+
+  // 3 — Send to backend for verification
+  const response = await fetch('/typed-data/verify', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ 
+      typedData, 
+      signature, 
+      address: accounts[0] 
+    })
+  });
+  
+  const result = await response.json();
+  console.log('Verification result:', result);
+} catch (err) {
+  console.error('Signing failed:', err);
+}
+​
+Example Express Server
+server/typed-data.ts
+
+Copy
+
+Ask AI
+import express from 'express';
+import { createPublicClient, http } from 'viem';
+import { base } from 'viem/chains';
+
+const app = express();
+app.use(express.json());
+
+const client = createPublicClient({ 
+  chain: base, 
+  transport: http() 
+});
+
+// Simple nonce store (use Redis/DB in production)
+const usedNonces = new Set<string>();
+
+app.get('/typed-data/prepare', (req, res) => {
+  const { userAddress, action, resource } = req.query;
+  
+  const nonce = Math.floor(Math.random() * 1000000);
+  const expiry = Math.floor(Date.now() / 1000) + 3600; // 1 hour
+  
+  const typedData = {
+    // YOUR TYPED DATA HERE
+  }
+  
+  res.json(typedData);
+});
+
+app.post('/typed-data/verify', async (req, res) => {
+  const { typedData, signature, address } = req.body;
+  
+  try {
+    // 1. Check nonce hasn't been reused
+    const nonceKey = `${address}-${typedData.message.nonce}`;
+    if (usedNonces.has(nonceKey)) {
+      return res.status(400).json({ error: 'Nonce already used' });
+    }
+    
+    // 2. Check expiry
+    const now = Math.floor(Date.now() / 1000);
+    if (typedData.message.expiry < now) {
+      return res.status(400).json({ error: 'Signature expired' });
+    }
+    
+    // 3. Verify signature
+    const valid = await client.verifyTypedData({
+      address,
+      domain: typedData.domain,
+      types: typedData.types,
+      primaryType: typedData.primaryType,
+      message: typedData.message,
+      signature
+    });
+    
+    if (!valid) {
+      return res.status(401).json({ error: 'Invalid signature' });
+    }
+    
+    // 4. Mark nonce as used
+    usedNonces.add(nonceKey);
+    
+    // 5. Process the verified action
+    res.json({ 
+      valid: true,
+      message: 'Typed data verified successfully',
+      action: typedData.message.action,
+      resource: typedData.message.resource
+    });
+  } catch (error) {
+    console.error('Verification error:', error);
+    res.status(500).json({ error: 'Verification failed' });
+  }
+});
+
+app.listen(3001, () => console.log('Typed data server listening on :3001'));
+​
+Best Practices
+​
+Domain Separation
+Always use unique domain parameters to prevent signature replay across different applications:
+
+Copy
+
+Ask AI
+const domain = {
+  name: 'Your App Name',           // Unique app identifier
+  version: '1',                    // Version your types
+  chainId: 8453,                   // Network-specific
+  verifyingContract: contractAddr   // Contract that will verify
+};
+​
+Nonce Management
+Include nonces to prevent replay attacks:
+
+Copy
+
+Ask AI
+// Generate unique nonces
+const nonce = crypto.randomBytes(16).toString('hex');
+
+// Store and validate nonces server-side
+const usedNonces = new Set(); // Use Redis/DB in production
+​
+Expiry Times
+Always include expiry timestamps for time-bound signatures:
+
+Copy
+
+Ask AI
+const expiry = Math.floor(Date.now() / 1000) + 3600; // 1 hoPay Gas in ERC20 tokens
+
+Copy page
+
+Base Account enables users to pay for gas in ERC20 tokens
+
+Base Account enables users to pay for gas in ERC20 tokens! Tokens can be accepted for payment by passed in app paymasters in addition to a set of universally supported tokens, such as USDC (this set to be expanded soon).
+This guide outlines how to set up your own app paymaster which will accept your token as payment.
+​
+Choose a paymaster service provider
+As a prerequisite, you’ll need to obtain a paymaster service URL from a paymaster service provider. ERC20 paymasters have additional requirements that will be outlined below.
+We recommend the Coinbase Developer Platform paymaster as it is fully set up to work with Base Account ERC20 token gas payments out of the box. CDP is also offering up to $15k in gas credits as part of the Base Gasless Campaign.
+Otherwise if using a different paymaster provider, it must conform to the specification outlined in ERC20 Compatible Paymasters to correctly work with Base Account.
+​
+App setup for custom token
+Once you have a paymaster that is compatible with ERC20 gas payments on Base Account, you are only responsible for including the approvals to the paymaster for your token. It is recommended to periodically top up the allowance once they hit some threshold.
+
+Copy
+
+Ask AI
+
+const tokenDecimals = 6
+const minTokenThreshold = 1 * 10 ** tokenDecimals // $1
+const tokenApprovalTopUp = 20 * 10 ** tokenDecimals // $20
+const tokenAddress = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"
+const nftContractAddress = "0x66519FCAee1Ed65bc9e0aCc25cCD900668D3eD49"
+const paymasterAddress = "0x2FAEB0760D4230Ef2aC21496Bb4F0b47D634FD4c"
+
+const mintTo = {
+  abi: abi,
+  functionName: "mintTo",
+  to: nftContractAddress,
+  args: [account.address, 1],
+};
+
+calls = [mintTo]
+
+// Checks for allowance
+const allowance = await client.readContract({
+  abi: parseAbi(["function allowance(address owner, address spender) returns (uint256)"]),
+  address: tokenAddress,
+  functionName: "allowance",
+  args: [account.address, paymasterAddress],
+})
+
+if (allowance < minTokenThreshold) {
+   // include approval for $20 in calls so that the paymaster will be able to move the token to accept payment
+   calls.push({
+        abi: ["function approve(address,uint)"],
+        functionName: "approve",
+        to: nftContractAddress,
+        args: [paymasterAddress, tokenApprovalTopUp],
+    })
+}
+That is it! Base Account will handle the rest as long as it is compatible as outlined below.
+​
+ERC20 Compatible Paymasters
+Coinbase Developer Platform is compatible out of the box and we will be working with other teams to include support soon!
+The paymaster must handle the pm_getPaymasterStubData and pm_getPaymasterData JSON-RPC requests specified by ERC-7677 in addition to pm_getAcceptedPaymentTokens. We step through each request and response below.
+​
+pm_getPaymasterStubData and pm_getPaymasterData
+The paymaster must use the specified ERC20 for payment if specified in the 7677 context field under erc20.
+Upon rejection / failure the paymaster should return a data field in the JSONRPC response which could be used to approve the paymaster and includes:
+acceptedTokens array which is a struct including the token address
+paymasterAddress field which is the paymaster address which will perform the token transfers.
+Upon success the paymaster must return a tokenPayment field in the result. This includes:
+tokenAddress address of the token used for payment
+maxFee the maximum fee to show in the UI
+decimals decimals to use in the UI
+name name of the token
+Base Account will simulate the transaction to ensure success and accurate information.
+Request
+This is a standard V0.6 Entrypoint request example with the additional context for the specified token to be used.
+
+Copy
+
+Ask AI
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "pm_getPaymasterData",
+  "params": [
+    {
+      "sender": "0xe62B4aD6A7c079F47D77a9b939D5DC67A0dcdC2B",
+      "nonce": "0x4e",
+      "initCode": "0x",
+      "callData": "0xb61d27f60000000000000000000000007746371e8df1d7099a84c20ed72e3335fb016b23000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000000000",
+      "callGasLimit": "0x113e10",
+      "verificationGasLimit": "0x113e10",
+      "preVerificationGas": "0x113e10",
+      "maxFeePerGas": "0x113e10",
+      "maxPriorityFeePerGas": "0x113e10",
+      "paymasterAndData": "0x",
+      "signature": "0x5ee079a5dec73fe39c1ce323955fb1158fc1b9a6b2ddbec104cd5cfec740fa5531584f098b0ca95331b6e316bd76091e3ab75a7bc17c12488664d27caf19197e1c"
+    },
+    "0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789",
+    "0x2105",
+    {
+      "erc20": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"
+    }
+  ]
+}
+Response
+Successful response:
+
+Copy
+
+Ask AI
+{
+  "id": 1,
+  "jsonrpc": "2.0",
+  "result": {
+    "paymasterAndData": "0x2faeb0760d4230ef2ac21496bb4f0b47d634fd4c0000670fdc98000000000000494b3b6e1d074fbca920212019837860000100833589fcd6edb6e08f4c7c32d4f71b54bda029137746371e8df1d7099a84c20ed72e3335fb016b23000000000000000000000000000000000000000000000000000000009b75458400000000697841102cd520d4e0171a58dadc3e6086111a49a90826cb0ad25579f25f1652081f68c17d8652387a33bf8880dc44ecf95be4213e786566d755baa6299f477b0bb21c",
+    "tokenPayment": {
+      "name": "USDC",
+      "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+      "maxFee": "0xa7c8",
+      "decimals": 6
+    }
+  }
+}
+Rejection response:
+
+Copy
+
+Ask AI
+{
+  "id": 1,
+  "jsonrpc": "2.0",
+  "error": {
+    "code": -32002,
+    "message": "request denied - no sponsorship and address can not pay with accepted token",
+    "data": {
+      "acceptedTokens": [
+        {
+          "name": "USDC",
+          "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+        }
+      ]
+    }
+  }
+}
+​
+pm_getAcceptedPaymentTokens
+pm_getAcceptedPaymentTokens returns an array of tokens the paymaster will accept for payment. The request contains the entrypoint and the chain id with optional context.
+Request
+
+Copy
+
+Ask AI
+{
+  "jsonrpc": "2.0", "id": 1,
+  "method": "pm_getAcceptedPaymentTokens",
+  "params": [ "0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789", "0x2105", {}]
+}
+Response
+
+Copy
+
+Ask AI
+{
+  "id": 1,
+  "jsonrpc": "2.0",
+  "result": {
+    "acceptedTokens": [
+      {
+        "name": "USDC",
+        "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"
+      }
+    ]
+  }
+}
+Was this page helpful?
+
+
