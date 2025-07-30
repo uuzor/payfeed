@@ -83,3 +83,10 @@ The app works with default settings, but you can customize:
 Default: `0x742d35Cc6634C0532925a3b844Bc9e7595f6E456`
 
 Users stream USDC to this address to gain community access. Stream verification is done off-chain for gas efficiency.
+
+
+"functions": {
+  "api/*.ts": {
+    "runtime": "@vercel/node@22.0.0"
+  }
+},
