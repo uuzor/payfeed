@@ -4,12 +4,12 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
-import { useWebSocket } from '@/hooks/useWebSocket';
+import { usePollingMessages } from '@/hooks/usePollingMessages';
 import { useToast } from '@/hooks/use-toast';
 import { CheckCircle, Send, Heart, Reply, Settings, Crown, Shield, Trophy, Megaphone, Smile } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 
-interface Message {
+interface CommunityMessage {
   id: string;
   userId: string;
   content: string;
@@ -30,45 +30,17 @@ interface CommunityFeedProps {
 
 export function CommunityFeed({ user, hasAccess }: CommunityFeedProps) {
   const [messageInput, setMessageInput] = useState('');
-  const [initialMessages, setInitialMessages] = useState<Message[]>([]);
-  const [isLoadingMessages, setIsLoadingMessages] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
 
-  const { messages: wsMessages, isConnected, sendMessage } = useWebSocket(user?.id);
+  const { messages: pollingMessages, isConnected, sendMessage, isLoading: isLoadingPolling } = usePollingMessages(user?.id, hasAccess);
 
-  // Combine initial messages with real-time messages
-  const allMessages = [...wsMessages, ...initialMessages].sort(
-    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-  );
-
-  useEffect(() => {
-    loadInitialMessages();
-  }, []);
+  // Use polling messages directly
+  const allMessages = pollingMessages;
 
   useEffect(() => {
     scrollToBottom();
   }, [allMessages]);
-
-  const loadInitialMessages = async () => {
-    try {
-      const response = await fetch('/api/messages?limit=30');
-      const { messages } = await response.json();
-      setInitialMessages(messages.map((msg: any) => ({
-        ...msg,
-        createdAt: new Date(msg.createdAt)
-      })));
-    } catch (error) {
-      console.error('Failed to load messages:', error);
-      toast({
-        title: "Error",
-        description: "Failed to load messages",
-        variant: "destructive",
-      });
-    } finally {
-      setIsLoadingMessages(false);
-    }
-  };
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -113,7 +85,7 @@ export function CommunityFeed({ user, hasAccess }: CommunityFeedProps) {
     }
   };
 
-  const renderMessage = (message: Message) => {
+  const renderMessage = (message: CommunityMessage) => {
     if (message.messageType === 'system') {
       return (
         <div key={message.id} className="flex items-center justify-center">
@@ -218,7 +190,7 @@ export function CommunityFeed({ user, hasAccess }: CommunityFeedProps) {
       </CardHeader>
 
       <CardContent className="flex-1 overflow-y-auto p-6 space-y-4">
-        {isLoadingMessages ? (
+        {isLoadingPolling ? (
           <div className="flex items-center justify-center h-full">
             <div className="text-gray-500">Loading messages...</div>
           </div>

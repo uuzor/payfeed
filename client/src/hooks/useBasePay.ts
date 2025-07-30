@@ -31,7 +31,7 @@ export function useBasePay() {
       });
 
       return {
-        id: result.id,
+        id: result?.id || '',
         success: true,
       };
     } catch (error: any) {

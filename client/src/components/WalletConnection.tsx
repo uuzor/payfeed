@@ -38,7 +38,7 @@ export function WalletConnection({ onUserConnect, user }: WalletConnectionProps)
       const accounts = await provider.request({
         method: 'eth_requestAccounts',
         params: [],
-      });
+      }) as string[];
 
       if (!accounts || accounts.length === 0) {
         throw new Error('No accounts found');

@@ -55,6 +55,8 @@ export class MemStorage implements IStorage {
     const user: User = {
       ...insertUser,
       id,
+      username: insertUser.username || null,
+      isVerified: insertUser.isVerified || false,
       createdAt: new Date(),
     };
     this.users.set(id, user);
@@ -94,8 +96,11 @@ export class MemStorage implements IStorage {
       id,
       streamedAmount: "0",
       startTime: new Date(),
+      endTime: insertStream.endTime || null,
       isActive: true,
       isPaused: false,
+      transactionHash: insertStream.transactionHash || null,
+      paymentId: insertStream.paymentId || null,
     };
     this.streams.set(id, stream);
 
@@ -139,6 +144,8 @@ export class MemStorage implements IStorage {
     const message: Message = {
       ...insertMessage,
       id,
+      messageType: insertMessage.messageType || "user",
+      metadata: insertMessage.metadata || null,
       createdAt: new Date(),
     };
     this.messages.set(id, message);

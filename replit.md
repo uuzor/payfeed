@@ -104,3 +104,20 @@ The application uses PostgreSQL with the following main entities:
 6. **BasePay Integration**: Leverages Base ecosystem for seamless USDC payments
 
 The architecture prioritizes simplicity, type safety, and real-time user experience while maintaining cost-effectiveness through off-chain logic where possible.
+
+## Recent Changes (January 2025)
+
+### Vercel Deployment Support
+- **API Migration**: Converted Express routes to Vercel serverless functions in `/api` directory
+- **Real-time Messaging**: Replaced WebSockets with polling-based system for Vercel compatibility
+- **Configuration**: Added `vercel.json`, deployment guides, and environment setup
+- **Error Resolution**: Fixed TypeScript errors in storage layer and component interfaces
+- **Build Process**: Optimized for Vercel's build and deployment pipeline
+
+### Architecture Updates for Serverless
+1. **API Routes**: Each endpoint now exists as a separate serverless function
+2. **Polling System**: Messages refresh every 5 seconds instead of real-time WebSocket updates
+3. **Storage Compatibility**: In-memory storage works across function calls with proper typing
+4. **Deployment Ready**: Complete Vercel deployment configuration with guides
+
+The app now supports both local development (Express) and production deployment (Vercel) seamlessly.
