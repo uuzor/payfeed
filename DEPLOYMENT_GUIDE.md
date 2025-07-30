@@ -65,12 +65,17 @@ This guide will help you deploy your BasePay-powered streaming app to Vercel.
 
 ### vercel.json
 The app is configured to:
-- Use Vercel's Node.js runtime for API routes
-- Serve the React app from the build output
+- Use `nodejs20.x` runtime for API routes
+- Build frontend with `vite build` command
+- Serve the React app from the `dist` output directory
 - Handle client-side routing with fallbacks
+- Include database environment variable configuration
 
-### Environment Variables (Optional)
-Set these in Vercel dashboard if needed:
+### Environment Variables (Required)
+Set these in Vercel dashboard:
+- `DATABASE_URL` - Your Neon/PostgreSQL database connection string
+
+### Optional Environment Variables
 - `VITE_TESTNET` - Set to `false` for mainnet
 - `VITE_COMMUNITY_WALLET` - Custom community wallet address
 

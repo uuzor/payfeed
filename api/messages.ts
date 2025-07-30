@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { DatabaseStorage } from '../server/storage';
+import { DatabaseStorage } from './_lib/storage';
 import { insertMessageSchema } from '../shared/schema';
 import { z } from 'zod';
 
