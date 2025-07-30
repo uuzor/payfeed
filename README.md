@@ -90,3 +90,18 @@ Users stream USDC to this address to gain community access. Stream verification 
     "runtime": "@vercel/node@22.0.0"
   }
 },
+{
+
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/$1"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ],
+  "buildCommand": "npm run build:vercel",
+  "outputDirectory": "dist/client"
+}
